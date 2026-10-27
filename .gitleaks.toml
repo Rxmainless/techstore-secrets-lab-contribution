@@ -1,0 +1,21 @@
+title = "TechStore Secrets Lab"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "assigned-secret"
+description = "Senha, token ou chave atribuída com valor literal"
+regex = '''(?i)[a-z0-9_]*(?:password|passwd|secret|token|api_?key)[a-z0-9_]*["']?[ \t]*[:=][ \t]*["']?([^\s"'#,;]{6,})'''
+secretGroup = 1
+keywords = ["password", "passwd", "secret", "token", "apikey", "api_key"]
+
+  [rules.allowlist]
+  description = "Referências a variáveis e arquivos de segredo, não valores"
+  regexTarget = "secret"
+  regexes = [
+    '''^process\.env''',
+    '''^\$\{''',
+    '''^/run/secrets/''',
+    '''^[A-Za-z_]+(\.[A-Za-z_]+)+$''',
+  ]
