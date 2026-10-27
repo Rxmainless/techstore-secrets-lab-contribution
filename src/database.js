@@ -1,4 +1,8 @@
-const connection= {
+const { getDatabaseConfig } = require("./config");
+
+const database = getDatabaseConfig();
+
+const connection = {
     host: database.host,
     port: database.port,
     database: database.database,
@@ -8,14 +12,12 @@ const connection= {
 
 function connect() {
     console.log(
-        `conectando ao banco $(connection.database) como $(connection.username)...`
+        `conectando ao banco ${connection.database} como ${connection.username}...`
     );
 
     return connection;
-
 }
 
 module.exports = {
     connect
 };
-
