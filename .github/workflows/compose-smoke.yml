@@ -36,9 +36,40 @@ jobs:
 
       - name: Testar endpoints
         run: |
-          echo "== /";             curl -sf localhost:3000/;             echo
-          echo "== /health";       curl -sf localhost:3000/health;       echo
-          echo "== /config-check"; curl -sf localhost:3000/config-check; echo
+          echo "== /";       curl -sf localhost:3000/;       echo
+          echo "== /health"; curl -sf localhost:3000/health; echo
+
+      - name: Verificar exposições (regressão de segurança)
+        run: |
+          falhou=0
+
+          health=$(curl -sf localhost:3000/health)
+          if echo "$health" | grep -qiE "database|localhost"; then
+            echo "::error::/health expõe detalhes de infraestrutura"
+            falhou=1
+          fi
+
+          status=$(curl -s -o /dev/null -w "%{http_code}" localhost:3000/config-check)
+          echo "/config-check sem token respondeu $status"
+          if [ "$status" = "200" ]; then
+            echo "::error::/config-check acessível sem autenticação"
+            falhou=1
+          fi
+
+          if curl -sI localhost:3000/ | grep -qi "^x-powered-by"; then
+            echo "::error::cabeçalho X-Powered-By exposto"
+            falhou=1
+          fi
+
+          if docker compose logs app --no-color | grep -qiE "como (root|techstore)|password"; then
+            echo "::error::logs da aplicação expõem usuário ou credenciais"
+            falhou=1
+          fi
+
+          if [ "$falhou" -eq 0 ]; then
+            echo "nenhuma exposição encontrada"
+          fi
+          exit "$falhou"
 
       - name: Status dos containers
         if: always()
