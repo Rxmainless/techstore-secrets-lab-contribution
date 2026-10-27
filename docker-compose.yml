@@ -1,23 +1,28 @@
-volumes:
-  -.:/app
-ports:
-  - "3000:3000"
-environment:
-  - NODE_ENV: development
-  - DB_HOST: database
-  - DB_PORT: 3306
-  - DB_USER: techstore_app
-  - DB_PASSWORD: TechstoreDB@123
-  - DB_NAME: techstore
+services:
+  app:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm start"
+    volumes:
+      - .:/app
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DB_HOST: database
+      DB_PORT: 3306
+      DB_USER: techstore_app
+      DB_PASSWORD: TechstoreDB@123
+      DB_NAME: techstore
+    depends_on:
+      - database
 
-
-database:
-  image: mysql:8.0
-  environment:
-    - MYSQL_ROOT_PASSWORD: TechstoreDB@123
-    - MYSQL_DATABASE: techstore
-    - MYSQL_USER: techstore_app
-    - MYSQL_PASSWORD: TechstoreDB@123
-    - MYSQL_ROOT_PASSWORD: RootTechstoreDB@123
-  ports:
-    - "3306:3306"
+  database:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: techstore
+      MYSQL_USER: techstore_app
+      MYSQL_PASSWORD: TechstoreDB@123
+      MYSQL_ROOT_PASSWORD: RootTechstoreDB@123
+    ports:
+      - "3306:3306"
