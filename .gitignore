@@ -1,3 +1,29 @@
+# Dependências e artefatos
 node_modules/
-logs/
 dist/
+coverage/
+
+# Logs
+logs/
+*.log
+
+# Variáveis de ambiente (só o modelo é versionado)
+.env
+.env.*
+!.env.example
+
+# Credenciais e segredos
+config/credentials*.json
+secrets/
+
+# Chaves e certificados
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Backups e dumps de banco
+backup/
+backups/
+*.sql
+*.dump
