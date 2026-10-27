@@ -148,11 +148,15 @@ O segredo fica acoplado ao código-fonte: qualquer pessoa com acesso ao código 
 
 ### Correção aplicada
 
-_Pendente – Etapa 4 (issue #6)._
+A função `getDatabaseConfig()` passou a ler a configuração exclusivamente de variáveis de ambiente (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` e `DB_PASSWORD`). Na inicialização, a aplicação valida as variáveis obrigatórias e, se alguma estiver ausente, interrompe a execução com uma mensagem que lista apenas os nomes das variáveis, nunca valores.
 
 ### Justificativa
 
-_Pendente._
+Com o segredo desacoplado do código, a mesma base de código roda em qualquer ambiente com credenciais diferentes, a troca de senha não exige alteração de código nem novo deploy, e o acesso ao código-fonte deixa de conceder acesso ao banco.
+
+A validação na inicialização (*fail fast*) evita que a aplicação suba com configuração incompleta e falhe depois, de forma silenciosa e difícil de diagnosticar. A mensagem de erro cita só os nomes das variáveis para não levar valores aos logs.
+
+A correção também resolveu uma falha funcional que o teste em Docker revelou: como o código ignorava o ambiente, dentro do container a aplicação procurava o banco em `localhost`, que ali é o próprio container da aplicação.
 
 ---
 
@@ -172,11 +176,13 @@ Viola o princípio do menor privilégio. Se a aplicação for comprometida, por 
 
 ### Correção aplicada
 
-_Pendente – Etapa 4 (issue #7)._
+O módulo de conexão deixou de fixar o usuário `root` e passou a usar o usuário definido no ambiente. No Docker Compose, esse usuário é o `techstore_app`, criado pela imagem oficial do MySQL com privilégios restritos ao banco `techstore`. O log de conexão deixou de exibir o banco e o usuário.
 
 ### Justificativa
 
-_Pendente._
+O princípio do menor privilégio limita o impacto de um comprometimento: se a aplicação for explorada, o atacante obtém apenas o acesso do usuário da aplicação, sem controle sobre a instância do banco, os demais bancos ou a criação de usuários. Em produção, recomenda-se restringir ainda mais o usuário às operações que a aplicação realmente executa (por exemplo, `SELECT`, `INSERT`, `UPDATE` e `DELETE`).
+
+O log não revela mais qual identidade atacar.
 
 ---
 
@@ -196,11 +202,20 @@ Exposição de informação (*information disclosure*). Um atacante usa esses en
 
 ### Correção aplicada
 
-_Pendente – Etapa 4 (issue #8)._
+- O `/health` retorna apenas o status da aplicação.
+- O `/config-check` passou a exigir o cabeçalho `Authorization: Bearer <token>`, validado contra o `INTERNAL_API_TOKEN`. A comparação usa `crypto.timingSafeEqual` sobre hashes SHA-256 dos dois valores. Sem token configurado no servidor, o endpoint responde `404`. A resposta deixou de incluir o nome do banco.
+- O cabeçalho `X-Powered-By`, que identificava o Express, foi desativado.
+- O pipeline de CI passou a verificar essas exposições a cada pull request.
 
 ### Justificativa
 
-_Pendente._
+Ferramentas de monitoramento e orquestradores só precisam saber se a aplicação está viva; detalhes de infraestrutura não têm função nesse endpoint.
+
+O diagnóstico de configuração continua disponível para operadores autorizados. A comparação em tempo constante impede ataques de temporização, em que o atacante mede o tempo de resposta para descobrir o token caractere por caractere. O hash prévio iguala o tamanho dos valores comparados, evitando que o tamanho do token vaze. A resposta `404` com o endpoint desativado evita anunciar a existência de um recurso protegido.
+
+Remover o `X-Powered-By` reduz a informação disponível para buscar vulnerabilidades específicas da tecnologia.
+
+As verificações no CI transformam as correções em testes de regressão: se alguma exposição for reintroduzida, o pull request falha.
 
 ---
 
@@ -220,11 +235,13 @@ Logs são copiados para arquivos, agregadores (ELK, CloudWatch), pipelines de CI
 
 ### Correção aplicada
 
-_Pendente – Etapa 4 (issue #9)._
+O script de backup deixou de imprimir a credencial, inclusive de forma parcial, e registra apenas que ela foi carregada do ambiente. A variável `API_KEY`, que não existia em nenhuma configuração do projeto, foi substituída por `BACKUP_API_KEY`, documentada no `.env.example`. A ausência da variável interrompe a execução com erro explícito.
 
 ### Justificativa
 
-_Pendente._
+Logs são replicados para arquivos, agregadores, pipelines de CI e tickets de suporte, com retenção longa e controle de acesso mais fraco que o de um cofre de segredos. Mesmo um mascaramento parcial, como exibir os últimos caracteres, reduz o espaço de busca de um ataque de força bruta e associa o registro à credencial.
+
+A inconsistência no nome da variável fazia a rotina executar sem credencial sem que ninguém percebesse. Agora a falha é explícita.
 
 ---
 
