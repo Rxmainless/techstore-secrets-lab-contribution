@@ -68,13 +68,17 @@ Qualquer pessoa com acesso ao repositório, ou a qualquer clone ou fork dele, ob
 
 ### Correção aplicada
 
-_Pendente – Etapa 3 (issue #3)._
+### Correção aplicada
+
+O `.gitignore` foi ampliado para cobrir arquivos de ambiente (`.env`, `.env.*`), arquivos de credenciais (`config/credentials*.json`, `secrets/`), chaves e certificados (`*.pem`, `*.key`, `*.p12`, `*.pfx`) e backups (`*.sql`, `*.dump`, `backup/`). O `.env.example` foi mantido versionável por uma exceção explícita (`!.env.example`).
+
+Como camada adicional, foi criado o `.gitleaks.toml` com a regra `assigned-secret`, que detecta senhas, tokens e chaves atribuídos com valor literal, inclusive os de baixa entropia que as regras padrão não detectavam.
 
 ### Justificativa
 
-_Pendente._
+O `.gitignore` é a primeira barreira: impede que arquivos sensíveis entrem no repositório por acidente, como num `git add .`. Ele sozinho não basta, porque não protege segredos escritos dentro de arquivos legítimos. Por isso foi adotada defesa em camadas: hook de pre-commit local, varredura com gitleaks em todo pull request e *push protection* do GitHub.
 
----
+A regra própria elevou a detecção no projeto de 1 para 11 segredos. Referências a variáveis de ambiente (`process.env`, `${...}`) e a arquivos de secrets (`/run/secrets/`) foram excluídas da regra, porque não são valores.
 
 ## Problema 2
 
@@ -92,11 +96,15 @@ Sem essa barreira preventiva, um simples `git add .` publica qualquer arquivo se
 
 ### Correção aplicada
 
-_Pendente – Etapa 3 (issue #4)._
+O `.gitignore` foi ampliado para cobrir arquivos de ambiente (`.env`, `.env.*`), arquivos de credenciais (`config/credentials*.json`, `secrets/`), chaves e certificados (`*.pem`, `*.key`, `*.p12`, `*.pfx`) e backups (`*.sql`, `*.dump`, `backup/`). O `.env.example` foi mantido versionável por uma exceção explícita (`!.env.example`).
+
+Como camada adicional, foi criado o `.gitleaks.toml` com a regra `assigned-secret`, que detecta senhas, tokens e chaves atribuídos com valor literal, inclusive os de baixa entropia que as regras padrão não detectavam.
 
 ### Justificativa
 
-_Pendente._
+O `.gitignore` é a primeira barreira: impede que arquivos sensíveis entrem no repositório por acidente, como num `git add .`. Ele sozinho não basta, porque não protege segredos escritos dentro de arquivos legítimos. Por isso foi adotada defesa em camadas: hook de pre-commit local, varredura com gitleaks em todo pull request e *push protection* do GitHub.
+
+A regra própria elevou a detecção no projeto de 1 para 11 segredos. Referências a variáveis de ambiente (`process.env`, `${...}`) e a arquivos de secrets (`/run/secrets/`) foram excluídas da regra, porque não são valores.
 
 ---
 
@@ -116,11 +124,11 @@ O arquivo concentra vários segredos em um único ponto de vazamento. O prefixo 
 
 ### Correção aplicada
 
-_Pendente – Etapa 3 (issue #5)._
+O arquivo `config/credentials.json` foi removido do repositório. Antes da remoção, foi verificado que nenhum código da aplicação o lia. O padrão `config/credentials*.json` foi incluído no `.gitignore` para impedir sua reintrodução.
 
 ### Justificativa
 
-_Pendente._
+Um arquivo que não é consumido por nenhum código e concentra credenciais em texto puro representa apenas risco, sem nenhuma função. Com a remoção, as variáveis de ambiente passam a ser a única fonte de configuração, eliminando os valores divergentes entre arquivos. A chave de pagamento com prefixo de produção (`live`) é tratada como comprometida e tem revogação prevista na seção "Segredos no histórico do Git".
 
 ---
 
