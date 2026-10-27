@@ -1,0 +1,53 @@
+name: compose-smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  compose:
+    name: compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar sintaxe do Compose
+        run: docker compose config --quiet
+
+      - name: Subir os serviços
+        run: docker compose up -d
+
+      - name: Aguardar a aplicação
+        run: |
+          for i in $(seq 1 40); do
+            if curl -sf localhost:3000/health > /dev/null; then
+              echo "aplicação respondeu após $((i * 3))s"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "aplicação não respondeu em 120s"
+          exit 1
+
+      - name: Testar endpoints
+        run: |
+          echo "== /";             curl -sf localhost:3000/;             echo
+          echo "== /health";       curl -sf localhost:3000/health;       echo
+          echo "== /config-check"; curl -sf localhost:3000/config-check; echo
+
+      - name: Status dos containers
+        if: always()
+        run: docker compose ps
+
+      - name: Logs dos containers
+        if: always()
+        run: docker compose logs --no-color
+
+      - name: Derrubar o ambiente
+        if: always()
+        run: docker compose down -v
