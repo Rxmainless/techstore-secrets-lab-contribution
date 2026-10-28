@@ -261,11 +261,23 @@ O arquivo de infraestrutura publica as credenciais do banco. A senha compartilha
 
 ### Correção aplicada
 
-_Pendente – Etapa 5 (issue #10)._
+As senhas foram removidas do `docker-compose.yml`. Os segredos passaram a ser entregues como **Docker secrets**: arquivos montados em `/run/secrets/`, apenas nos serviços que precisam deles.
+
+- O MySQL lê as senhas por `MYSQL_PASSWORD_FILE` e `MYSQL_ROOT_PASSWORD_FILE`, recurso nativo da imagem oficial.
+- A aplicação ganhou a função `readSecret`, que lê o arquivo indicado em `<NOME>_FILE` e, na execução local, recorre à variável comum definida no `.env`.
+- A senha root e a senha da aplicação passaram a ser segredos distintos. O container da aplicação não recebe a senha root.
+- A chave `MYSQL_ROOT_PASSWORD` duplicada deixou de existir.
+- Os valores são gerados com `openssl` pelo script `scripts/generate-secrets.sh`, no diretório `secrets/`, ignorado pelo Git. O parâmetro `FORCE=1` gera novos valores para todos os segredos (rotação).
 
 ### Justificativa
 
-_Pendente._
+Variáveis de ambiente ficam visíveis via `docker inspect`, são herdadas por processos filhos e costumam aparecer em dumps de erro e ferramentas de diagnóstico. Arquivos de secrets ficam restritos aos containers autorizados e não aparecem na configuração do container. A verificação no CI confirma que nenhum dos dois serviços expõe variável de ambiente com nome de senha ou token, apenas as referências `_FILE`.
+
+Separar a senha root da senha da aplicação garante que o comprometimento da aplicação não dê controle sobre a instância do banco. A geração aleatória elimina as senhas fracas da versão original. A convenção `_FILE` é a mesma usada por orquestradores como Docker Swarm e Kubernetes, o que facilita a migração para um gerenciador de segredos em produção.
+
+Durante os testes, foi identificado que, no Windows, o `openssl` termina a saída com CRLF. O caractere CR permanecia no arquivo; a aplicação o descartava, mas o MySQL não, gerando senhas divergentes entre as duas pontas. O script passou a remover o CR, e o login do usuário da aplicação no banco foi validado com a senha do secret.
+
+**Limitação:** no Docker Compose sem Swarm, a permissão de leitura do arquivo de secret depende do sistema de arquivos do host. Os arquivos recebem permissão `644`, para que o usuário do container consiga lê-los, e o diretório `secrets/` recebe `700`, para impedir o acesso de outros usuários do host. No Windows, essas permissões Unix não se aplicam.
 
 ---
 
@@ -285,11 +297,11 @@ O banco fica acessível a partir da rede, e não apenas da aplicação. Combinad
 
 ### Correção aplicada
 
-_Pendente – Etapa 5 (issue #11)._
+O mapeamento `3306:3306` foi removido. O banco passou a ficar em uma rede `backend` configurada como `internal: true`, sem rota para fora do Docker. Apenas o serviço da aplicação está conectado a essa rede. Para administração, o acesso é feito de dentro do container (`docker compose exec database mysql ...`).
 
 ### Justificativa
 
-_Pendente._
+O banco não deve aceitar conexões que não venham da aplicação. Com a porta fechada, um atacante na rede não alcança o banco diretamente, mesmo que obtenha uma credencial. A rede interna também impede o container do banco de abrir conexões para fora, o que dificulta a exfiltração de dados. O CI verifica a cada pull request que a porta do banco não está publicada no host.
 
 ---
 
@@ -309,11 +321,19 @@ Segredos e histórico do Git passam a existir dentro do container. Se o containe
 
 ### Correção aplicada
 
-_Pendente – Etapa 5 (issue #12)._
+- O volume `.:/app` foi removido. A aplicação passou a ser executada a partir de uma imagem construída por um `Dockerfile`, que copia apenas `package.json`, `package-lock.json`, `src/` e o script de backup, e instala somente as dependências de produção (`npm ci --omit=dev`) com `NODE_ENV=production`.
+- O processo roda como o usuário `node`, não `root`. Os arquivos da aplicação pertencem ao `root`, então o processo consegue lê-los, mas não alterá-los.
+- O `.dockerignore` exclui `.env`, `secrets/`, `.git` e demais arquivos locais do contexto de build.
+- O container da aplicação roda com sistema de arquivos somente leitura (`read_only`), sem *capabilities* do Linux (`cap_drop: ALL`) e sem escalonamento de privilégios (`no-new-privileges`).
+- Os dados do MySQL passaram a ficar em um volume nomeado, e os dois serviços ganharam *healthcheck*.
 
 ### Justificativa
 
-_Pendente._
+A imagem passa a conter apenas o necessário para executar a aplicação: segredos e histórico do Git não chegam ao container. O que roda é exatamente o que foi construído e testado, sem depender de arquivos da máquina do desenvolvedor.
+
+Usuário não-root, sistema de arquivos somente leitura e ausência de *capabilities* limitam o que um atacante consegue fazer mesmo depois de explorar a aplicação: ele não altera o código, não grava ferramentas no disco e não escala privilégios. O `.dockerignore` é uma camada adicional que impede que um futuro `COPY .` leve segredos para a imagem.
+
+As evidências da versão original mostraram `.env`, `credentials.json` e `.git` dentro do container, com permissão de escrita total, e o processo de instalação do container gravando arquivos diretamente no diretório do projeto no host. Na versão corrigida, o CI verifica que o processo não roda como `root`, que `.env` e `.git` não existem no container, que a aplicação não tem acesso à senha root do banco e que o sistema de arquivos não aceita escrita.
 
 ---
 
