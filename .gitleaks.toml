@@ -11,7 +11,7 @@ secretGroup = 1
 keywords = ["password", "passwd", "secret", "token", "apikey", "api_key"]
 
   [rules.allowlist]
-  description = "Referências a variáveis, arquivos de segredo e chamadas de função, não valores"
+  description = "Referências a variáveis, arquivos de segredo, chamadas de função e substituições de comando, não valores"
   regexTarget = "secret"
   regexes = [
     '''^process\.env''',
@@ -19,4 +19,5 @@ keywords = ["password", "passwd", "secret", "token", "apikey", "api_key"]
     '''^/run/secrets/''',
     '''^[A-Za-z_]+(\.[A-Za-z_]+)+$''',
     '''^[A-Za-z_][A-Za-z0-9_.]*\($''',
+    '''^\$\(''',
   ]
