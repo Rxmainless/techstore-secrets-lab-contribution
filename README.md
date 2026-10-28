@@ -516,3 +516,7 @@ Ao final da atividade, o repositório deverá representar uma versão mais segur
 - consideração sobre rotação e revogação de credenciais.
 
 O objetivo final é compreender que **gerenciar segredos não significa apenas esconder uma senha**, mas controlar todo o ciclo de vida das informações sensíveis dentro do ambiente DevOps.
+
+## Autor
+
+Jorge Mesquita · [github.com/usuario-do-jorge](https://github.com/Rxmainless) · jjorgefilho@outlook.com

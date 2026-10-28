@@ -5,6 +5,22 @@ Este documento registra os problemas de gerenciamento de segredos identificados 
 > **Baseline analisada:** commit `8192ae3` (tag `v0.1.0`).
 > Os valores dos segredos foram omitidos intencionalmente deste relatório. Registrar um segredo na documentação seria criar mais um ponto de exposição.
 
+## Resumo
+
+| # | Local | Problema | Correção |
+|---|---|---|---|
+| 1 | `.env` | Segredos reais versionados em repositório público | Arquivo removido do Git; `.env.example` sem valores como modelo |
+| 2 | `.gitignore` | Não protegia `.env`, credenciais, chaves nem backups | Regras para `.env*`, `secrets/`, `credentials*.json`, chaves e dumps |
+| 3 | `config/credentials.json` | Credenciais administrativas e chave `live` em texto puro | Arquivo removido; segredos vêm do ambiente ou de Compose secrets |
+| 4 | `src/config.js` | Senha e usuário privilegiado hardcoded | Configuração lida do ambiente, com suporte a `_FILE` e validação |
+| 5 | `src/database.js` | Usuário `root` fixo e usuário logado no console | Usuário da configuração (menor privilégio); log sem dados sensíveis |
+| 6 | `src/app.js` | `/health` e `/config-check` expunham dados sem autenticação | `/health` mínimo; `/config-check` protegido por token Bearer |
+| 7 | `scripts/backup.js` | Chave de API impressa no log | Chave lida do ambiente e nunca exibida |
+| 8 | `docker-compose.yml` | Senhas em texto puro, root igual à da aplicação | Docker secrets via `_FILE`, senhas distintas e geradas |
+| 9 | `docker-compose.yml` | Porta 3306 do MySQL publicada no host | Porta removida; banco só em rede interna |
+| 10 | `docker-compose.yml` | Bind mount `.:/app` levava `.env` e `.git` ao container | Imagem própria (Dockerfile), sem mount, container somente leitura |
+
+Os segredos da versão original continuam no histórico do Git e foram tratados como comprometidos. O plano de revogação e rotação está em [Segredos no histórico do Git](#segredos-no-histórico-do-git).
 ---
 
 ## Metodologia
@@ -403,3 +419,7 @@ O projeto passou a ter defesa em camadas contra novos vazamentos:
 4. ***push protection*** do GitHub, que recusa o push de segredos de provedores conhecidos;
 5. **rulesets** que impedem merge na `main` sem os checks de segurança aprovados, sem exceção para administradores;
 6. **testes de regressão** no CI, que falham se alguma das exposições corrigidas voltar.
+
+## Autor
+
+Jorge Mesquita · [github.com/usuario-do-jorge](https://github.com/Rxmainless) · jjorgefilho@outlook.com
