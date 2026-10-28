@@ -1,28 +1,74 @@
 services:
   app:
-    image: node:20-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm start"
-    volumes:
-      - .:/app
-    ports:
-      - "3000:3000"
+    build: .
     environment:
-      NODE_ENV: development
+      PORT: 3000
       DB_HOST: database
       DB_PORT: 3306
-      DB_USER: techstore_app
-      DB_PASSWORD: TechstoreDB@123
       DB_NAME: techstore
+      DB_USER: techstore_app
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      INTERNAL_API_TOKEN_FILE: /run/secrets/internal_api_token
+      PAYMENT_API_KEY_FILE: /run/secrets/payment_api_key
+    secrets:
+      - db_password
+      - internal_api_token
+      - payment_api_key
+    ports:
+      - "3000:3000"
+    networks:
+      - frontend
+      - backend
     depends_on:
-      - database
+      database:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
 
   database:
     image: mysql:8.0
     environment:
       MYSQL_DATABASE: techstore
       MYSQL_USER: techstore_app
-      MYSQL_PASSWORD: TechstoreDB@123
-      MYSQL_ROOT_PASSWORD: RootTechstoreDB@123
-    ports:
-      - "3306:3306"
+      MYSQL_PASSWORD_FILE: /run/secrets/db_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+    secrets:
+      - db_password
+      - db_root_password
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  db-data:
+
+secrets:
+  db_root_password:
+    file: ./secrets/db_root_password
+  db_password:
+    file: ./secrets/db_password
+  internal_api_token:
+    file: ./secrets/internal_api_token
+  payment_api_key:
+    file: ./secrets/payment_api_key
