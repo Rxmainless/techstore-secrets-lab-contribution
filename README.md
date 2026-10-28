@@ -6,6 +6,8 @@ Este projeto simula uma aplicação simplificada da TechStore, contendo uma API,
 
 O projeto foi desenvolvido propositalmente com diferentes problemas relacionados ao gerenciamento de informações sensíveis.
 
+> **Status:** versão corrigida (tag `v1.0.0`). Os 10 problemas identificados estão corrigidos e documentados no [`SECURITY.md`](SECURITY.md). A versão original, com os problemas, está preservada na tag `v0.1.0`. O resumo da solução está na seção [✅ Solução](#-solução).
+
 ---
 
 ## 🎯 Objetivo
@@ -55,6 +57,8 @@ A aplicação é propositalmente simples para que o foco da atividade esteja na 
 - Docker
 - Docker Compose
 - MySQL
+- gitleaks (varredura de segredos)
+- GitHub Actions (integração contínua)
 
 ---
 
@@ -62,26 +66,37 @@ A aplicação é propositalmente simples para que o foco da atividade esteja na 
 
     techstore-secrets-lab/
     │
+    ├── .github/
+    │   ├── workflows/
+    │   │   ├── secret-scan.yml        # varredura de segredos (gitleaks) em todo PR
+    │   │   └── compose-smoke.yml      # sobe o ambiente Docker e testa as proteções
+    │   ├── dependabot.yml
+    │   └── pull_request_template.md
+    │
     ├── src/
     │   ├── app.js
-    │   ├── config.js
+    │   ├── config.js                  # leitura de configuração e segredos (readSecret)
     │   └── database.js
     │
-    ├── config/
-    │   └── credentials.json
-    │
     ├── scripts/
-    │   └── backup.js
+    │   ├── backup.js
+    │   ├── generate-secrets.sh        # gera os secrets do Docker Compose
+    │   └── rotate-db-password.sh      # rotaciona senhas do banco sem perda de dados
     │
-    ├── .env
+    ├── .dockerignore
+    ├── .env.example                   # modelo de configuração, sem valores sensíveis
+    ├── .gitattributes
     ├── .gitignore
+    ├── .gitleaks.toml                 # regra própria para segredos de baixa entropia
+    ├── .nvmrc
     ├── docker-compose.yml
+    ├── Dockerfile
     ├── package.json
-    └── README.md
+    ├── package-lock.json
+    ├── README.md
+    └── SECURITY.md                    # relatório de análise de segurança
 
-Analise todos os arquivos do projeto.
-
-Nem todos os problemas estão necessariamente no código principal da aplicação.
+Os arquivos `.env` e `secrets/` são criados localmente na configuração inicial e **nunca são versionados**.
 
 ---
 
@@ -91,10 +106,12 @@ Nem todos os problemas estão necessariamente no código principal da aplicaçã
 
 Antes de iniciar, certifique-se de possuir:
 
-- Node.js instalado;
+- Node.js 18 ou superior;
 - npm instalado;
 - Docker instalado;
-- Docker Compose disponível.
+- Docker Compose disponível;
+- OpenSSL (já incluído no Git Bash, no Windows);
+- gitleaks (opcional, para o hook de pre-commit).
 
 Verifique:
 
@@ -102,18 +119,50 @@ Verifique:
     npm --version
     docker --version
     docker compose version
+    openssl version
+
+No Windows, execute os comandos no **Git Bash**.
 
 ---
 
-## 2. Instalar as dependências
+## 2. Configuração inicial
+
+Execute estes passos **uma única vez**, logo após clonar o repositório.
+
+**Variáveis de ambiente para execução local:**
+
+    cp .env.example .env
+
+Abra o `.env` e preencha os valores vazios (`DB_PASSWORD`, `PAYMENT_API_KEY`, `INTERNAL_API_TOKEN` e `BACKUP_API_KEY`). Para gerar valores aleatórios:
+
+    openssl rand -hex 32
+
+**Secrets para o Docker Compose:**
+
+    bash scripts/generate-secrets.sh
+
+O script cria o diretório `secrets/` com valores aleatórios. Nenhum valor é exibido no terminal.
+
+**Hook de pre-commit (recomendado):**
+
+    printf '#!/bin/sh\ngitleaks git --pre-commit --staged --redact -v\n' > .git/hooks/pre-commit
+    chmod +x .git/hooks/pre-commit
+
+O hook impede commits que contenham segredos. Hooks ficam em `.git/hooks` e não são versionados, por isso cada pessoa precisa instalá-lo na própria máquina.
+
+---
+
+## 3. Instalar as dependências
 
 Na raiz do projeto:
 
-    npm install
+    npm ci
+
+O `npm ci` instala exatamente as versões registradas no `package-lock.json`.
 
 ---
 
-## 3. Executar a aplicação
+## 4. Executar a aplicação
 
 Execute:
 
@@ -123,13 +172,11 @@ A aplicação deverá iniciar na porta:
 
     3000
 
-Acesse:
-
-    http://localhost:3000
+Se alguma variável obrigatória estiver ausente no `.env`, a aplicação não inicia e informa quais variáveis estão faltando.
 
 ---
 
-## 4. Testar a aplicação
+## 5. Testar a aplicação
 
 ### Página principal
 
@@ -139,21 +186,27 @@ Acesse:
 
     http://localhost:3000/health
 
+Retorna apenas o status da aplicação.
+
 ### Configuração
 
     http://localhost:3000/config-check
 
-Observe cuidadosamente as respostas apresentadas pela aplicação.
+Endpoint de diagnóstico protegido. Sem autenticação, responde `401`. Para acessá-lo, envie o token interno:
+
+    curl -H "Authorization: Bearer $(grep '^INTERNAL_API_TOKEN=' .env | cut -d= -f2-)" http://localhost:3000/config-check
+
+### Backup
+
+    npm run backup
 
 ---
 
 # 🐳 Execução com Docker Compose
 
-O projeto também possui uma configuração para execução utilizando Docker Compose.
+Com os secrets gerados na configuração inicial, construa a imagem e suba os serviços, aguardando os *healthchecks*:
 
-Execute:
-
-    docker compose up -d
+    docker compose up -d --build --wait
 
 Verifique os serviços:
 
@@ -166,6 +219,19 @@ Para visualizar os logs:
 Para interromper os serviços:
 
     docker compose down
+
+Para interromper e **apagar os dados do banco**:
+
+    docker compose down -v
+
+Para acessar o banco (a porta não é publicada no host):
+
+    docker compose exec database mysql -u techstore_app -p techstore
+
+Para rotacionar as senhas do banco sem perder dados:
+
+    bash scripts/rotate-db-password.sh app
+    bash scripts/rotate-db-password.sh root
 
 ---
 
@@ -248,6 +314,96 @@ Repita o modelo para todos os problemas encontrados.
 
 ---
 
+# ✅ Solução
+
+O detalhamento de cada problema, com local, risco, correção e justificativa, está no [`SECURITY.md`](SECURITY.md). Esta seção resume o trabalho.
+
+## Problemas encontrados e correções realizadas
+
+| # | Local | Problema | Correção | Issue |
+|---|---|---|---|---|
+| 1 | `.env` | Arquivo de segredos versionado em repositório público | Removido do Git; `.env.example` sem valores sensíveis | #3 |
+| 2 | `.gitignore` | Não protegia arquivos sensíveis | Cobertura de ambiente, credenciais, chaves e backups; regra própria do gitleaks | #4 |
+| 3 | `config/credentials.json` | Credenciais em texto puro, incluindo chave de produção | Arquivo removido; configuração apenas pelo ambiente | #5 |
+| 4 | `src/config.js` | Credenciais do banco fixas no código | Leitura do ambiente com validação na inicialização | #6 |
+| 5 | `src/database.js` | Conexão como `root` e usuário exibido em log | Usuário de menor privilégio; log sem dados de conexão | #7 |
+| 6 | `src/app.js` | Endpoints expunham infraestrutura e estado dos segredos | `/health` mínimo; `/config-check` protegido por token | #8 |
+| 7 | `scripts/backup.js` | Chave de API impressa no log | Credencial nunca exibida; variável ausente interrompe a execução | #9 |
+| 8 | `docker-compose.yml` | Senhas em texto puro, senha root compartilhada e duplicada | Docker secrets (`_FILE`), senhas distintas e aleatórias | #10 |
+| 9 | `docker-compose.yml` | Porta do MySQL publicada no host | Porta removida; banco em rede interna | #11 |
+| 10 | `docker-compose.yml` | Projeto inteiro montado no container, em modo de desenvolvimento | Imagem própria, usuário não-root, sistema de arquivos somente leitura | #12 |
+
+Os segredos que estiveram no histórico do Git foram tratados como comprometidos, com plano de revogação e rotação (issue #13).
+
+## Boas práticas aplicadas
+
+- **Separação entre configuração e código:** nenhum segredo no código-fonte; toda configuração vem do ambiente.
+- **Princípio do menor privilégio:** usuário de banco restrito ao banco da aplicação; container sem `root`, sem *capabilities* e somente leitura; container da aplicação sem acesso à senha root.
+- **Redução da superfície de exposição:** banco sem porta publicada e em rede interna; endpoints sem informações de infraestrutura; imagem com apenas o necessário.
+- **Segredos fora dos logs:** nenhum valor sensível é impresso, nem parcialmente.
+- **Segredos fortes:** todos os valores gerados aleatoriamente com `openssl`, substituindo as senhas fracas originais.
+- **Defesa em camadas:** `.gitignore`, hook de pre-commit, gitleaks no CI, *push protection* do GitHub e regras de proteção da branch principal.
+- **Falha explícita:** configuração ausente impede a inicialização, em vez de causar erros silenciosos.
+- **Reprodutibilidade:** `package-lock.json`, `npm ci` e versão do Node fixada em `.nvmrc`.
+
+## Decisões técnicas
+
+**Não reescrever o histórico do Git.** Um segredo publicado em repositório público pode já ter sido copiado; apagá-lo do histórico não desfaz a exposição. A reescrita também romperia o vínculo deste fork com o repositório original. A resposta adotada foi tratar todos os segredos como comprometidos e rotacioná-los.
+
+**Docker secrets com a convenção `_FILE`.** Variáveis de ambiente aparecem no `docker inspect` e são herdadas por processos filhos. Os segredos passaram a ser arquivos montados apenas nos containers que precisam deles. A função `readSecret` lê o arquivo indicado em `<NOME>_FILE` e, na execução local, recorre ao `.env`, de modo que o mesmo código funciona nos dois cenários. É a mesma convenção usada por Docker Swarm e Kubernetes.
+
+**Proteger o `/config-check` em vez de removê-lo.** O diagnóstico continua útil para operadores autorizados. O token é comparado em tempo constante para impedir ataques de temporização, e o endpoint responde `404` quando não há token configurado, sem anunciar sua existência.
+
+**Regra própria no gitleaks.** As regras padrão detectavam apenas 1 dos 11 segredos do projeto, porque senhas escolhidas por pessoas têm baixa entropia. A regra `assigned-secret` passou a detectar todos. Ao longo do projeto, a regra foi calibrada para não acusar referências que não são valores (`process.env`, `/run/secrets/`, chamadas de função e `$(...)`), sempre verificando que os 11 segredos originais continuavam detectados.
+
+**Testes de regressão de segurança no CI.** O pipeline sobe o ambiente Docker com secrets gerados na hora e falha o pull request se alguma exposição corrigida voltar: segredo em variável de ambiente, porta do banco publicada, processo como `root`, `.env` ou `.git` no container, endpoint sem autenticação, entre outras verificações.
+
+**Regras de proteção sem exceção para administradores.** A primeira configuração permitia que administradores fizessem merge sem os checks obrigatórios, o que anulava a proteção silenciosamente. A exceção foi removida: nenhum código entra na `main` sem as verificações de segurança aprovadas, inclusive o da própria mantenedora.
+
+**Baseline funcional separada das correções de segurança.** A versão original não executava. Os reparos funcionais foram feitos em commits próprios (`fix(app)`), antes das correções de segurança (`fix(security)`), para que cada um dos 10 problemas tivesse uma correção isolada e rastreável.
+
+**Problemas encontrados durante os testes.** Dois defeitos só apareceram na prática e foram corrigidos:
+
+- no Windows, o `openssl` termina a saída com CRLF, e o caractere CR gerava senhas divergentes entre a aplicação e o MySQL;
+- remover o `.env` do Git faz com que o arquivo seja apagado das máquinas que executam `git pull`, o que motivou a seção de configuração inicial deste README.
+
+## Estratégia de gerenciamento de segredos
+
+| Ambiente | Onde ficam os segredos | Características |
+|---|---|---|
+| Desenvolvimento | `.env` e `secrets/`, locais e ignorados pelo Git | Valores aleatórios, exclusivos de cada máquina |
+| CI | Gerados a cada execução do pipeline | Descartados ao final; nunca reutilizados |
+| Produção | Gerenciador de segredos (GitHub Environments, configurado neste repositório, ou serviços como AWS Secrets Manager, Azure Key Vault e HashiCorp Vault) | Acesso restrito, auditoria e rotação periódica |
+
+**Ciclo de vida:** os segredos são gerados aleatoriamente, entregues apenas a quem precisa deles, nunca exibidos em logs ou respostas, e rotacionados a cada 90 dias ou imediatamente em caso de suspeita de vazamento. As senhas do banco são rotacionadas pelo `scripts/rotate-db-password.sh`, sem perda de dados. O plano de resposta para os segredos que estiveram no histórico, a política de rotação e as camadas de prevenção estão detalhados no `SECURITY.md`.
+
+## Resultado da validação
+
+Validação executada em um clone limpo do repositório, simulando o primeiro uso por uma nova pessoa.
+
+| Critério | Versão original (`v0.1.0`) | Versão corrigida |
+|---|---|---|
+| Segredos versionados | `.env`, `credentials.json`, `config.js`, `docker-compose.yml` | Nenhum |
+| Detecção pelo gitleaks | 1 de 11 segredos | 11 de 11, com regra própria |
+| Aplicação local | Não executava | Executa; `npm ci` sem vulnerabilidades |
+| `/health` | Expunha o host do banco | Retorna apenas o status |
+| `/config-check` | Público, com nome do banco | `401` sem token |
+| Log do backup | Imprimia a chave de API | Não exibe a credencial |
+| Log de conexão | Exibia conexão como `root` | Sem dados de conexão |
+| Porta do MySQL | Publicada em `0.0.0.0:3306` | Apenas na rede interna |
+| Usuário do container | `root` | `node` (uid 1000) |
+| Conteúdo do container | `.env`, `.git` e credenciais, com escrita liberada | Apenas o necessário, somente leitura |
+| Variáveis do container | Senhas em texto puro | Apenas referências `_FILE` |
+
+## Organização do trabalho
+
+- **Issues:** uma por problema, agrupadas no milestone "Entrega".
+- **Branches e pull requests:** uma branch por etapa, com merge por *squash* e commits no padrão Conventional Commits.
+- **Proteção da `main`:** merge somente por pull request, com os checks `gitleaks` e `compose` aprovados, histórico linear e sem *force push*.
+- **Tags:** `v0.1.0` (versão original) e `v1.0.0` (versão corrigida), protegidas contra alteração e exclusão.
+
+---
+
 # 🧪 Validação
 
 Depois das correções:
@@ -284,20 +440,20 @@ Verifique cuidadosamente se nenhuma informação sensível está sendo preparada
 
 Antes de entregar, confirme:
 
-- [ ] Analisei todos os arquivos do projeto.
-- [ ] Identifiquei os problemas de segurança.
-- [ ] Corrigi os problemas encontrados.
-- [ ] A aplicação continua funcionando.
-- [ ] Testei os endpoints.
-- [ ] Testei o Docker Compose.
-- [ ] Revisei os logs.
-- [ ] Revisei o `git status`.
-- [ ] Revisei o `git diff`.
-- [ ] Não estou versionando informações sensíveis.
-- [ ] Criei o `SECURITY.md`.
-- [ ] Documentei as decisões tomadas.
-- [ ] Expliquei como as credenciais devem ser gerenciadas.
-- [ ] Considerei rotação e revogação de credenciais.
+- [x] Analisei todos os arquivos do projeto.
+- [x] Identifiquei os problemas de segurança.
+- [x] Corrigi os problemas encontrados.
+- [x] A aplicação continua funcionando.
+- [x] Testei os endpoints.
+- [x] Testei o Docker Compose.
+- [x] Revisei os logs.
+- [x] Revisei o `git status`.
+- [x] Revisei o `git diff`.
+- [x] Não estou versionando informações sensíveis.
+- [x] Criei o `SECURITY.md`.
+- [x] Documentei as decisões tomadas.
+- [x] Expliquei como as credenciais devem ser gerenciadas.
+- [x] Considerei rotação e revogação de credenciais.
 
 ---
 
