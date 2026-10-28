@@ -16,23 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Gerar secrets do ambiente de teste
+        run: bash scripts/generate-secrets.sh
+
       - name: Validar sintaxe do Compose
         run: docker compose config --quiet
 
-      - name: Subir os serviços
-        run: docker compose up -d
-
-      - name: Aguardar a aplicação
-        run: |
-          for i in $(seq 1 40); do
-            if curl -sf localhost:3000/health > /dev/null; then
-              echo "aplicação respondeu após $((i * 3))s"
-              exit 0
-            fi
-            sleep 3
-          done
-          echo "aplicação não respondeu em 120s"
-          exit 1
+      - name: Construir e subir os serviços
+        run: docker compose up -d --build --wait --wait-timeout 180
 
       - name: Testar endpoints
         run: |
@@ -42,28 +33,65 @@ jobs:
       - name: Verificar exposições (regressão de segurança)
         run: |
           falhou=0
+          erro() { echo "::error::$1"; falhou=1; }
 
           health=$(curl -sf localhost:3000/health)
           if echo "$health" | grep -qiE "database|localhost"; then
-            echo "::error::/health expõe detalhes de infraestrutura"
-            falhou=1
+            erro "/health expõe detalhes de infraestrutura"
           fi
 
           status=$(curl -s -o /dev/null -w "%{http_code}" localhost:3000/config-check)
-          echo "/config-check sem token respondeu $status"
-          if [ "$status" = "200" ]; then
-            echo "::error::/config-check acessível sem autenticação"
-            falhou=1
+          echo "/config-check sem token: $status"
+          if [ "$status" != "401" ]; then
+            erro "/config-check sem token deveria responder 401"
+          fi
+
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $(cat secrets/internal_api_token)" \
+            localhost:3000/config-check)
+          echo "/config-check com token: $status"
+          if [ "$status" != "200" ]; then
+            erro "/config-check com token válido deveria responder 200"
           fi
 
           if curl -sI localhost:3000/ | grep -qi "^x-powered-by"; then
-            echo "::error::cabeçalho X-Powered-By exposto"
-            falhou=1
+            erro "cabeçalho X-Powered-By exposto"
           fi
 
           if docker compose logs app --no-color | grep -qiE "como (root|techstore)|password"; then
-            echo "::error::logs da aplicação expõem usuário ou credenciais"
-            falhou=1
+            erro "logs da aplicação expõem usuário ou credenciais"
+          fi
+
+          for servico in app database; do
+            nomes=$(docker inspect "$(docker compose ps -q "$servico")" \
+              --format '{{range .Config.Env}}{{println .}}{{end}}' \
+              | cut -d= -f1 | grep -iE "password|passwd|secret|token|api_?key" \
+              | grep -v "_FILE$" || true)
+            if [ -n "$nomes" ]; then
+              erro "segredo em variável de ambiente no serviço $servico: $nomes"
+            fi
+          done
+
+          if [ -n "$(docker port "$(docker compose ps -q database)")" ]; then
+            erro "porta do banco publicada no host"
+          fi
+
+          uid=$(docker compose exec -T app id -u)
+          echo "uid do processo da aplicação: $uid"
+          if [ "$uid" = "0" ]; then
+            erro "aplicação executando como root"
+          fi
+
+          if docker compose exec -T app sh -c 'test -e /app/.env || test -e /app/.git'; then
+            erro ".env ou .git presente dentro do container"
+          fi
+
+          if docker compose exec -T app test -e /run/secrets/db_root_password; then
+            erro "container da aplicação tem acesso à senha root do banco"
+          fi
+
+          if docker compose exec -T app sh -c 'touch /app/teste-escrita' 2>/dev/null; then
+            erro "sistema de arquivos da aplicação gravável"
           fi
 
           if [ "$falhou" -eq 0 ]; then
