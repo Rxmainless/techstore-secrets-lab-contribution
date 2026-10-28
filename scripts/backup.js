@@ -1,6 +1,15 @@
 require("dotenv").config();
 
-const backupApiKey = process.env.BACKUP_API_KEY;
+const { readSecret } = require("../src/config");
+
+let backupApiKey;
+
+try {
+    backupApiKey = readSecret("BACKUP_API_KEY");
+} catch (error) {
+    console.error(`Erro de configuração: ${error.message}`);
+    process.exit(1);
+}
 
 if (!backupApiKey) {
     console.error("Erro de configuração: variável de ambiente BACKUP_API_KEY ausente.");

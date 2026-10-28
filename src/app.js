@@ -2,13 +2,17 @@ require("dotenv").config();
 
 const crypto = require("node:crypto");
 const express = require("express");
-const { getDatabaseConfig } = require("./config");
+const { getDatabaseConfig, readSecret } = require("./config");
 const { connect } = require("./database");
 
 let databaseConfig;
+let internalApiToken;
+let paymentApiKey;
 
 try {
     databaseConfig = getDatabaseConfig();
+    internalApiToken = readSecret("INTERNAL_API_TOKEN");
+    paymentApiKey = readSecret("PAYMENT_API_KEY");
 } catch (error) {
     console.error(`Erro de configuração: ${error.message}`);
     process.exit(1);
@@ -27,15 +31,13 @@ function tokensMatch(received, expected) {
 }
 
 function requireInternalToken(req, res, next) {
-    const expectedToken = process.env.INTERNAL_API_TOKEN;
-
-    if (!expectedToken) {
+    if (!internalApiToken) {
         return res.status(404).json({ error: "Not Found" });
     }
 
     const [scheme, token] = (req.get("authorization") || "").split(" ");
 
-    if (scheme !== "Bearer" || !token || !tokensMatch(token, expectedToken)) {
+    if (scheme !== "Bearer" || !token || !tokensMatch(token, internalApiToken)) {
         return res.status(401).json({ error: "Unauthorized" });
     }
 
@@ -53,7 +55,7 @@ app.get("/health", (req, res) => {
 app.get("/config-check", requireInternalToken, (req, res) => {
     res.json({
         databaseConfigured: true,
-        paymentConfigured: Boolean(process.env.PAYMENT_API_KEY),
+        paymentConfigured: Boolean(paymentApiKey),
         internalApiConfigured: true
     });
 });
