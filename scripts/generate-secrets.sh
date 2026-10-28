@@ -21,7 +21,7 @@ generate() {
         return
     fi
 
-    "${@:2}" | tr -d '\n' > "$file"
+    "${@:2}" | tr -d '\r\n' > "$file"
     chmod 644 "$file"
     echo "gerado:  $name"
 }
