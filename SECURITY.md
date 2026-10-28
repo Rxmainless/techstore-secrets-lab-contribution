@@ -68,17 +68,15 @@ Qualquer pessoa com acesso ao repositório, ou a qualquer clone ou fork dele, ob
 
 ### Correção aplicada
 
-### Correção aplicada
-
-O `.gitignore` foi ampliado para cobrir arquivos de ambiente (`.env`, `.env.*`), arquivos de credenciais (`config/credentials*.json`, `secrets/`), chaves e certificados (`*.pem`, `*.key`, `*.p12`, `*.pfx`) e backups (`*.sql`, `*.dump`, `backup/`). O `.env.example` foi mantido versionável por uma exceção explícita (`!.env.example`).
-
-Como camada adicional, foi criado o `.gitleaks.toml` com a regra `assigned-secret`, que detecta senhas, tokens e chaves atribuídos com valor literal, inclusive os de baixa entropia que as regras padrão não detectavam.
+O arquivo `.env` foi removido do rastreamento do Git com `git rm --cached`, permanecendo apenas no ambiente local. Foi criado o `.env.example`, com as mesmas variáveis e nenhum valor sensível, para documentar a configuração necessária. O `.gitignore` passou a bloquear o `.env` (Problema 2).
 
 ### Justificativa
 
-O `.gitignore` é a primeira barreira: impede que arquivos sensíveis entrem no repositório por acidente, como num `git add .`. Ele sozinho não basta, porque não protege segredos escritos dentro de arquivos legítimos. Por isso foi adotada defesa em camadas: hook de pre-commit local, varredura com gitleaks em todo pull request e *push protection* do GitHub.
+A configuração sensível deve viver no ambiente, não no código. O `.env.example` comunica quais variáveis a aplicação espera sem expor nenhum valor.
 
-A regra própria elevou a detecção no projeto de 1 para 11 segredos. Referências a variáveis de ambiente (`process.env`, `${...}`) e a arquivos de secrets (`/run/secrets/`) foram excluídas da regra, porque não são valores.
+A remoção **não apaga o histórico**: os valores continuam acessíveis no commit `8192ae3` (tag `v0.1.0`). Optou-se por não reescrever o histórico por dois motivos. Primeiro, um segredo publicado em repositório público deve ser considerado comprometido, porque pode já ter sido copiado por clones, forks, caches ou robôs que varrem o GitHub continuamente. Segundo, a reescrita romperia o vínculo deste fork com o repositório original e invalidaria a tag de referência. A resposta adequada é a rotação das credenciais, descrita na seção "Segredos no histórico do Git".
+
+---
 
 ## Problema 2
 
@@ -104,7 +102,7 @@ Como camada adicional, foi criado o `.gitleaks.toml` com a regra `assigned-secre
 
 O `.gitignore` é a primeira barreira: impede que arquivos sensíveis entrem no repositório por acidente, como num `git add .`. Ele sozinho não basta, porque não protege segredos escritos dentro de arquivos legítimos. Por isso foi adotada defesa em camadas: hook de pre-commit local, varredura com gitleaks em todo pull request e *push protection* do GitHub.
 
-A regra própria elevou a detecção no projeto de 1 para 11 segredos. Referências a variáveis de ambiente (`process.env`, `${...}`) e a arquivos de secrets (`/run/secrets/`) foram excluídas da regra, porque não são valores.
+A regra própria elevou a detecção no projeto de 1 para 11 segredos. Referências a variáveis de ambiente (`process.env`, `${...}`), arquivos de secrets (`/run/secrets/`), chamadas de função e substituições de comando (`$(...)`) foram excluídas da regra, porque não são valores. Essas exclusões foram calibradas à medida que o projeto evoluiu, sempre verificando que a regra continuava detectando os 11 segredos originais.
 
 ---
 
@@ -267,7 +265,7 @@ As senhas foram removidas do `docker-compose.yml`. Os segredos passaram a ser en
 - A aplicação ganhou a função `readSecret`, que lê o arquivo indicado em `<NOME>_FILE` e, na execução local, recorre à variável comum definida no `.env`.
 - A senha root e a senha da aplicação passaram a ser segredos distintos. O container da aplicação não recebe a senha root.
 - A chave `MYSQL_ROOT_PASSWORD` duplicada deixou de existir.
-- Os valores são gerados com `openssl` pelo script `scripts/generate-secrets.sh`, no diretório `secrets/`, ignorado pelo Git. O parâmetro `FORCE=1` gera novos valores para todos os segredos (rotação).
+- Os valores são gerados com `openssl` pelo script `scripts/generate-secrets.sh`, no diretório `secrets/`, ignorado pelo Git. O parâmetro `FORCE=1` gera novos valores para todos os segredos em um ambiente novo; com o banco em funcionamento, as senhas são rotacionadas pelo procedimento descrito em "Segredos no histórico do Git".
 
 ### Justificativa
 
@@ -339,4 +337,69 @@ As evidências da versão original mostraram `.env`, `credentials.json` e `.git`
 
 ## Segredos no histórico do Git
 
-_Pendente – Etapa 6 (issue #13): plano de rotação e revogação de cada credencial._
+### Situação
+
+Os segredos removidos nas correções continuam acessíveis no histórico do repositório, no commit `8192ae3` (tag `v0.1.0`), publicado em repositório público desde 05/10/2026. Remover um arquivo não apaga o histórico, e qualquer clone, fork ou cache feito nesse período mantém uma cópia. Por isso, **todos os segredos da versão original são tratados como comprometidos**, mesmo depois de removidos do código.
+
+A reescrita do histórico foi descartada pelos motivos descritos no Problema 1: ela não recupera um segredo já copiado e romperia o vínculo deste fork com o repositório original. A resposta adequada é revogar ou rotacionar cada credencial.
+
+### Plano de resposta por credencial
+
+As ações seguem a ordem de prioridade, da credencial com maior impacto potencial para a de menor.
+
+| Credencial | Ação | Verificação de uso indevido | Situação neste projeto |
+|---|---|---|---|
+| Chave de API de pagamento (`live`) | Revogar imediatamente no painel do provedor e emitir nova chave, entregue apenas pelo gerenciador de segredos de produção | Auditar transações e chamadas à API do provedor desde 05/10/2026 | Ambientes de desenvolvimento e CI usam chave de teste (`pk_test_`) gerada aleatoriamente; a chave de produção deve ser emitida pelo provedor |
+| Senha root do MySQL | Rotacionar com `scripts/rotate-db-password.sh root` | Revisar os logs de conexão do banco em busca de acessos como root de origens inesperadas | Rotacionada |
+| Senha do usuário da aplicação | Rotacionar com `scripts/rotate-db-password.sh app` | Revisar conexões desse usuário a partir de hosts que não sejam a aplicação | Rotacionada |
+| Token da API interna | Invalidar e emitir novo token | Revisar os logs de acesso aos endpoints internos | Regenerado |
+| Usuários `techstore_root` e `adminTechstore` | Remover de qualquer ambiente em que existam | Revisar o histórico de uso dessas contas | Não existem na configuração atual |
+
+### Procedimento de rotação
+
+**Senhas do banco.** O script `scripts/rotate-db-password.sh` rotaciona a senha sem recriar o banco e sem perda de dados:
+
+1. gera uma nova senha aleatória;
+2. aplica com `ALTER USER`, autenticando como root a partir do secret;
+3. confirma que a nova senha autentica e que a antiga é rejeitada;
+4. atualiza o arquivo de secret;
+5. recria apenas o container da aplicação.
+
+Nenhuma senha é passada como argumento de processo nem exibida no terminal: os valores trafegam pela entrada padrão. Se a falha ocorrer antes da aplicação no banco, a senha nova é descartada; se ocorrer depois, ela é preservada em arquivo com permissão `600` para recuperação.
+
+O procedimento foi testado com dados no banco: após a rotação das senhas da aplicação e do root, os registros foram preservados, a aplicação permaneceu saudável e as senhas antigas foram rejeitadas.
+
+**Tokens e chaves de API.** Apagar o arquivo correspondente em `secrets/`, executar `scripts/generate-secrets.sh`, que gera apenas os secrets ausentes, e recriar o container da aplicação.
+
+**Atenção:** o parâmetro `FORCE=1` do `generate-secrets.sh` regenera todos os secrets e só deve ser usado em ambiente novo. Com o banco já inicializado, o MySQL ignora os secrets, e as senhas ficariam divergentes.
+
+### Armazenamento por ambiente
+
+| Ambiente | Onde ficam os segredos | Características |
+|---|---|---|
+| Desenvolvimento | `.env` (execução com `npm start`) e `secrets/` (Docker Compose), locais e ignorados pelo Git | Valores aleatórios gerados por script, exclusivos de cada máquina |
+| CI | Gerados a cada execução do pipeline | Descartados ao final; nunca reutilizados nem persistidos |
+| Produção | Gerenciador de segredos: GitHub Environments (configurado neste repositório) ou serviços como AWS Secrets Manager, Azure Key Vault e HashiCorp Vault | Acesso restrito, trilha de auditoria e rotação periódica |
+
+O repositório tem um environment `production` configurado no GitHub, com os secrets `DB_ROOT_PASSWORD`, `DB_PASSWORD`, `INTERNAL_API_TOKEN` e `BACKUP_API_KEY`. Os valores foram gerados aleatoriamente e enviados diretamente ao GitHub, sem exibição em nenhum momento. Somente workflows executados a partir da branch `main` podem acessá-los.
+
+### Política de rotação
+
+| Tipo de credencial | Periodicidade |
+|---|---|
+| Senhas de banco de dados | A cada 90 dias |
+| Tokens internos | A cada 90 dias |
+| Chaves de provedores externos | Conforme a política do provedor, no máximo a cada 90 dias |
+
+Em qualquer um destes casos, a rotação é **imediata**: suspeita de vazamento, segredo detectado em código, log ou histórico, ou saída de uma pessoa que tinha acesso à credencial.
+
+### Camadas de prevenção
+
+O projeto passou a ter defesa em camadas contra novos vazamentos:
+
+1. **`.gitignore`**, que impede o versionamento de arquivos sensíveis;
+2. **hook de pre-commit** com gitleaks, que bloqueia o commit na máquina do desenvolvedor;
+3. **gitleaks no CI** com regra própria para segredos de baixa entropia, em todo pull request;
+4. ***push protection*** do GitHub, que recusa o push de segredos de provedores conhecidos;
+5. **rulesets** que impedem merge na `main` sem os checks de segurança aprovados, sem exceção para administradores;
+6. **testes de regressão** no CI, que falham se alguma das exposições corrigidas voltar.
