@@ -1,0 +1,23 @@
+# Segredos e configuração local
+.env
+.env.*
+secrets/
+config/
+
+# Controle de versão e CI
+.git/
+.github/
+.gitattributes
+.gitignore
+.gitleaks.toml
+
+# Dependências e artefatos locais
+node_modules/
+*.log
+
+# Arquivos que não fazem parte da imagem
+Dockerfile
+.dockerignore
+docker-compose*.yml
+*.md
+.nvmrc
