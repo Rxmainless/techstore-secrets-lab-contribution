@@ -519,4 +519,4 @@ O objetivo final é compreender que **gerenciar segredos não significa apenas e
 
 ## Autor
 
-Jorge Mesquita · [github.com/usuario-do-jorge](https://github.com/Rxmainless) · jjorgefilho@outlook.com
+Jorge Mesquita · [github.com/Rxmainless](https://github.com/Rxmainless) · jjorgefilho@outlook.com

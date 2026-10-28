@@ -422,4 +422,4 @@ O projeto passou a ter defesa em camadas contra novos vazamentos:
 
 ## Autor
 
-Jorge Mesquita · [github.com/usuario-do-jorge](https://github.com/Rxmainless) · jjorgefilho@outlook.com
+Jorge Mesquita · [github.com/Rxmainless](https://github.com/Rxmainless) · jjorgefilho@outlook.com
