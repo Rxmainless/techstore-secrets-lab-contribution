@@ -4,7 +4,9 @@
 #
 # Uso:
 #   bash scripts/generate-secrets.sh            gera apenas os secrets ausentes
-#   FORCE=1 bash scripts/generate-secrets.sh    gera novos valores para todos (rotação)
+#   FORCE=1 bash scripts/generate-secrets.sh    gera novos valores para todos (somente em ambiente novo)
+#   Com o banco já inicializado, use scripts/rotate-db-password.sh para as senhas do banco.
+#   Para rotacionar um único secret, apague o arquivo em secrets/ e rode este script.
 set -euo pipefail
 
 SECRETS_DIR="$(cd "$(dirname "$0")/.." && pwd)/secrets"
